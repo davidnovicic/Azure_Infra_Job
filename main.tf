@@ -26,3 +26,41 @@ module "monitoring" {
     ManagedBy   = "Terraform"
   }
 }
+
+resource "azurerm_monitor_diagnostic_setting" "activity_log" {
+  name                       = "activity-log-to-law"
+  target_resource_id         = data.azurerm_subscription.current.id
+  log_analytics_workspace_id = module.monitoring.id
+
+  enabled_log {
+    category = "Administrative"
+  }
+
+  enabled_log {
+    category = "Security"
+  }
+
+  enabled_log {
+    category = "ServiceHealth"
+  }
+
+  enabled_log {
+    category = "Alert"
+  }
+
+  enabled_log {
+    category = "Recommendation"
+  }
+
+  enabled_log {
+    category = "Policy"
+  }
+
+  enabled_log {
+    category = "Autoscale"
+  }
+
+  enabled_log {
+    category = "ResourceHealth"
+  }
+}
