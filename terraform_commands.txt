@@ -1,0 +1,6 @@
+HOW TO REMOVE SOMETHING FROM TERRAFORM STATE:
+
+terraform state list
+
+terraform state rm something
+

@@ -1,0 +1,132 @@
+GUIDE TO CREATE AZURE INFRA WITH TERRAFORM
+on Azure for Students subscription
+
+choco terraform install
+
+terraform init
+
+winget install --exact --id Microsoft.AzureCLI --version 2.67.0                                                                
+
+az login --username --password
+
+az account show
+
+az group create --name rg-terraform-state --location westeurope
+
+CHECK FOR PROVIDER RELATE TO STORAGE:
+az provider show `                                
+>>   --namespace Microsoft.Storage `                                                 
+>>   --query registrationState `                                  
+>>   --output tsv    
+
+az provider register --namespace Microsoft.Storage
+az provider register --namespace Microsoft.Security
+
+
+THIS IS ONLY FOR SPECIFIC SUBSCRIPTIONS THAT HAVE POLICY ATTACHED LIKE
+Azure for Students:
+az policy assignment show `
+>>   --name sys.regionrestriction `
+>>   --scope /subscriptions/f619463c-339d-497b-b315-61c9645d0b81 `
+>>   --query "{displayName:displayName, parameters:parameters}" `
+>>   --output json
+
+az storage account create `                                   
+>>   --name storagedavidtfstate `                                                
+>>   --resource-group rg-terraform-state `                      
+>>   --subscription f619463c-339d-497b-b315-61c9645d0b81 `
+>>   --location austriaeast `
+>>   --sku Standard_LRS `
+>>   --kind StorageV2 `        
+>>   --min-tls-version TLS1_2 `      
+>>   --allow-blob-public-access false
+
+CREATE THE STATE FOR TERRAFORM INSIDE CONTAINER:
+az storage container create `
+  --name tfstate `
+  --account-name storagedavidtfstate `
+  --auth-mode login
+
+
+THIS HAD TO BE DONE MANUALLY, EVER OTHER RESOURCE
+WILL BE MADE TROUGH TERRAFORM
+
+
+CREATING IDENTITY FOR GITHUB (AWS asume role) SO IT CAN AUTHENTICATE
+TO AZURE:
+az identity create `
+  --name "id-terraform-github" `
+  --resource-group "rg-security" `
+  --location "Austria East" `
+  --output json
+  
+  
+CONTRIBUTOR ROLE ASSIGNED 
+ON THE RESOURCE GROUP LEVEL 
+(What can be done by id-terraform-github):
+
+az role assignment create `
+  --assignee-object-id "badaa082-0317-4695-bdc8-5b42c54a5da7" `
+  --assignee-principal-type "ServicePrincipal" `
+  --role "Contributor" `
+  --scope "/subscriptions/f619463c-339d-497b-b315-61c9645d0b81/resourceGroups/rg-security" `
+  --output json
+  
+
+STORAGE BLOB DATA CONTRIBUTOR ROLE ASSIGNED
+ON THE RESOURCE GROUP LEVEL:
+az role assignment create `
+  --assignee-object-id "badaa082-0317-4695-bdc8-5b42c54a5da7" `
+  --assignee-principal-type "ServicePrincipal" `
+  --role "Storage Blob Data Contributor" `
+  --scope "/subscriptions/f619463c-339d-497b-b315-61c9645d0b81/resourceGroups/rg-terraform-state/providers/Microsoft.Storage/storageAccounts/storagedavidtfstate" `
+  --output json
+
+
+CREATE THE FEDERATED CREDENTIAL FOR GITHUB ON OUR USER ASSIGNED MANAGED IDENTITY
+(the exact name of the subject field will change and we will need to to replace it after first push to GitHub,
+because GitHub now uses an immutable subject format for repositories created after July 15, 2026.):
+az identity federated-credential create `
+  --name "github-main" `
+  --identity-name "id-terraform-github" `
+  --resource-group "rg-security" `
+  --issuer "https://token.actions.githubusercontent.com" `
+  --subject "repo:davidnovicic/Azure_Infra_Job:ref:refs/heads/main" `
+  --audiences "api://AzureADTokenExchange" `
+  --output json
+  
+
+PERMISSIONS FOR OWNER ACCOUNT TO BE ABLE TO READ STATE IN THE STORAGE CONTAINER
+(Owner can manage the storage but canno't read it without Storage Data Contributor role):
+az role assignment create `
+>>   --assignee "nz20230425@student.fon.bg.ac.rs" `
+>>   --role "Storage Blob Data Contributor" `
+>>   --scope "/subscriptions/f619463c-339d-497b-b315-61c9645d0b81/resourceGroups/rg-terraform-state/providers/Microsoft.Storage/storageAccounts/storagedavidtfstate" 
+  
+  
+
+
+SECURITY FLOW CHAIN:
+
+GitHub Actions starts
+        ↓
+GitHub issues an OIDC token
+        ↓
+Azure receives the token
+        ↓
+Azure checks:
+  issuer = GitHub?
+  subject = our repository/main?
+  audience = Azure?
+        ↓
+YES
+        ↓
+Azure identifies the caller as:
+id-terraform-github
+        ↓
+Azure checks RBAC
+        ↓
+Contributor → rg-security
+Storage Blob Data Contributor → Terraform state
+        ↓
+Terraform can perform permitted operations
